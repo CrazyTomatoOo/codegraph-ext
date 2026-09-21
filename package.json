@@ -1,0 +1,12 @@
+{
+  "name": "codegraph-ext",
+  "version": "0.1.0",
+  "description": "pi extension for CodeGraph-assisted code exploration",
+  "main": "index.ts",
+  "type": "module",
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "keywords": ["pi", "pi-extension", "codegraph"],
+  "license": "MIT"
+}
