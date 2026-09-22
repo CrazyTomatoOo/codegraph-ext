@@ -78,12 +78,13 @@ npm ci
 npm run typecheck
 npm test
 npm pack --dry-run --json
-node scripts/host-acceptance.mjs <package-directory> <indexed-project-directory>
+node scripts/host-acceptance.mjs "$PACKAGE_DIR" "$INDEXED_PROJECT"
 ```
 
-`npm pack` runs typechecking and tests before building the tarball. Verify the
-artifact contains both entries, shared source, README, and license.
-The package's `prepack` hook also runs for `npm publish`.
+Set `PACKAGE_DIR` to the unpacked artifact directory and `INDEXED_PROJECT` to
+an indexed project. The `prepack` hook runs typechecking and tests for both
+`npm pack` and `npm publish`; verify the artifact contains both entries, shared
+source, README, and license.
 The host matrix command needs `pi`, `omp`, and `codegraph` on `PATH`; set
 `PI_BIN`, `OMP_BIN`, and `CODEGRAPH_BIN` to test explicit runtime versions.
 
