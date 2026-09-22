@@ -3,10 +3,29 @@
   "version": "0.1.0",
   "description": "pi extension for CodeGraph-assisted code exploration",
   "main": "index.ts",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --types node core.ts"
+  },
   "type": "module",
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
-  "keywords": ["pi", "pi-extension", "codegraph"],
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "codegraph"
+  ],
+  "peerDependencies": {
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsx": "^4.20.6",
+    "typebox": "1.3.27",
+    "typescript": "^7.0.2"
+  },
   "license": "MIT"
 }
