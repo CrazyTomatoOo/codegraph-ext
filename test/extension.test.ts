@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { Type } from "typebox";
 import extension from "../index.ts";
+import ompExtension from "../omp.ts";
 
 const originalPath = process.env.PATH;
 const originalTimeout = process.env.CODEGRAPH_MCP_TIMEOUT_MS;
@@ -68,6 +69,26 @@ function register() {
 		sendMessage(message: any) { messages.push(message); return message; },
 	};
 	extension(pi as any);
+	return { tools, commands, messages };
+}
+
+function registerOmp() {
+	const tools = new Map<string, any>();
+	const commands = new Map<string, any>();
+	const messages: any[] = [];
+	const scalar = (type: string) => ({ type, optional() { return { type, optional: true }; } });
+	const zod = {
+		string: () => scalar("string"),
+		number: () => scalar("number"),
+		object: (shape: unknown) => ({ type: "object", shape }),
+	};
+	const pi = {
+		zod,
+		registerTool(tool: any) { tools.set(tool.name, tool); },
+		registerCommand(name: string, command: any) { commands.set(name, command); },
+		sendMessage(message: any) { messages.push(message); return message; },
+	};
+	ompExtension(pi as any);
 	return { tools, commands, messages };
 }
 
@@ -157,5 +178,38 @@ test("timeout and cancellation end their child process", async () => {
 		} finally {
 			await rm(fixture.root, { recursive: true, force: true });
 		}
+	}
+});
+
+test("OMP entry shares explore success, command, and fail-open behavior", async () => {
+	const fixture = await setupFakeCli();
+	const notifications: string[] = [];
+	try {
+		const { tools, commands, messages } = registerOmp();
+		const context = { cwd: fixture.root, signal: undefined, ui: { notify(message: string) { notifications.push(message); } } };
+		const result = await tools.get("codegraph_explore").execute("id", { query: "OMP structural query", maxFiles: 5 }, undefined, undefined, context);
+		assert.match(result.content[0].text, /OMP structural query/);
+		await commands.get("codegraph").handler("OMP command query", context);
+		assert.match(messages[0].content, /OMP command query/);
+		assert.deepEqual(notifications, []);
+	} finally {
+		await rm(fixture.root, { recursive: true, force: true });
+	}
+
+	const failedFixture = await setupFakeCli("error");
+	try {
+		const { tools, commands } = registerOmp();
+		const context = {
+			cwd: failedFixture.root,
+			signal: undefined,
+			ui: { notify(message: string) { notifications.push(message); } },
+		};
+		const result = await tools.get("codegraph_explore").execute("id", { query: "missing index" }, undefined, undefined, context);
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /index unavailable/);
+		await commands.get("codegraph").handler("missing index", context);
+		assert.match(notifications[0], /index unavailable/);
+	} finally {
+		await rm(failedFixture.root, { recursive: true, force: true });
 	}
 });

@@ -1,11 +1,11 @@
 {
   "name": "codegraph-ext",
   "version": "0.1.0",
-  "description": "pi extension for CodeGraph-assisted code exploration",
+  "description": "CodeGraph explore extension for pi and oh-my-pi",
   "main": "index.ts",
   "scripts": {
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --types node core.ts"
+    "typecheck": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --types node core.ts register.ts"
   },
   "type": "module",
   "pi": {
@@ -13,8 +13,17 @@
       "./index.ts"
     ]
   },
+  "omp": {
+    "extensions": [
+      "./omp.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "keywords": [
     "pi",
+    "oh-my-pi",
     "pi-extension",
     "codegraph"
   ],
