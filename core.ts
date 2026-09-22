@@ -44,7 +44,7 @@ export async function exploreCodeGraph(query: string, projectPath: string, signa
 		});
 		await request("notifications/initialized");
 		const result = await request("tools/call", {
-			name: "explore",
+			name: "codegraph_explore",
 			arguments: { query, ...(maxFiles === undefined ? {} : { maxFiles }) },
 		});
 		if (result?.isError) {

@@ -36,6 +36,10 @@ process.stdin.on("data", () => {
 			else if (mode === "error") send({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "index unavailable" } });
 			else send({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "fake", version: "1" } } });
 		} else if (request.method === "tools/call") {
+			if (request.params.name !== "codegraph_explore") {
+				send({ jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Unknown tool: " + request.params.name } });
+				continue;
+			}
 			if (mode === "stderr") { process.stderr.write("index is missing\\n"); process.exit(2); }
 			if (mode === "timeout") continue;
 			send({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: JSON.stringify({ query: request.params.arguments.query, maxFiles: request.params.arguments.maxFiles, files: ["src/main.ts"] }) }] } });
