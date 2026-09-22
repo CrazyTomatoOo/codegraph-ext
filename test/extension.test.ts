@@ -52,13 +52,24 @@ process.stdin.on("data", () => {
 			else if (mode === "error") send({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "index unavailable" } });
 			else send({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "fake", version: "1" } } });
 		} else if (request.method === "tools/call") {
-			if (request.params.name !== "codegraph_explore") {
+			const supportedTools = ["codegraph_explore", "codegraph_node", "codegraph_search", "codegraph_files", "codegraph_status"];
+			if (!supportedTools.includes(request.params.name)) {
 				send({ jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Unknown tool: " + request.params.name } });
 				continue;
 			}
 			if (mode === "stderr") { process.stderr.write("index is missing\\n"); process.exit(2); }
 			if (mode === "timeout") continue;
-			send({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: JSON.stringify({ query: request.params.arguments.query, maxFiles: request.params.arguments.maxFiles, files: ["src/main.ts"] }) }] } });
+			if (mode === "invalid" || mode === "no-index") {
+				const text = mode === "invalid" ? "Error: invalid tool arguments" : "Error: no CodeGraph index found";
+				send({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text }], isError: true } });
+				process.exit(0);
+			}
+			if (process.env.CODEGRAPH_TEST_CALLS_FILE) require("node:fs").appendFileSync(process.env.CODEGRAPH_TEST_CALLS_FILE, JSON.stringify(request.params) + "\\n");
+			const details = { tool: request.params.name, arguments: request.params.arguments, structured: true };
+			const text = request.params.name === "codegraph_explore"
+				? JSON.stringify({ query: request.params.arguments.query, maxFiles: request.params.arguments.maxFiles, files: ["src/main.ts"] })
+				: JSON.stringify(details);
+			send({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text }], structuredContent: details } });
 			process.exit(0);
 		} else if (request.method === "notifications/initialized") {
 			if (mode === "exit") process.exit(7);
@@ -98,6 +109,8 @@ function registerOmp() {
 	const zod = {
 		string: () => scalar("string"),
 		number: () => scalar("number"),
+		boolean: () => scalar("boolean"),
+		enum: (options: readonly string[]) => ({ type: "enum", options, optional() { return { type: "enum", options, optional: true }; } }),
 		object: (shape: unknown) => ({ type: "object", shape }),
 	};
 	const pi = {
@@ -123,6 +136,7 @@ test.afterEach(() => {
 	delete process.env.CODEGRAPH_TEST_PID_FILE;
 	delete process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE;
 	delete process.env.CODEGRAPH_TEST_HOOK_OUTPUT;
+	delete process.env.CODEGRAPH_TEST_CALLS_FILE;
 });
 
 test("registers codegraph_explore and keeps the slash command", () => {
@@ -308,5 +322,69 @@ test("missing prompt-hook CLI does not block either host", async () => {
 		}
 	} finally {
 		await rm(fixture.root, { recursive: true, force: true });
+	}
+});
+
+test("pi and OMP focused tools map supported MCP arguments and preserve structured details", async () => {
+	const cases = [
+		{ name: "codegraph_node", fields: ["symbol", "includeCode", "file", "offset", "limit", "symbolsOnly", "line", "projectPath"], args: { symbol: "registerCodeGraphHandlers", includeCode: true, file: "codegraph-ext/register.ts", line: 22, projectPath: "project" } },
+		{ name: "codegraph_search", fields: ["query", "kind", "limit", "projectPath"], args: { query: "registerCodeGraphHandlers", kind: "function", limit: 3, projectPath: "project" } },
+		{ name: "codegraph_files", fields: ["path", "pattern", "format", "includeMetadata", "maxDepth", "projectPath"], args: { path: "codegraph-ext", pattern: "*.ts", format: "flat", includeMetadata: false, maxDepth: 2, projectPath: "project" } },
+		{ name: "codegraph_status", fields: ["projectPath"], args: { projectPath: "project" } },
+	];
+	const fixture = await setupFakeCli();
+	const callsPath = path.join(fixture.root, "calls.jsonl");
+	process.env.CODEGRAPH_TEST_CALLS_FILE = callsPath;
+	try {
+		for (const registerHost of [register, registerOmp]) {
+			const { tools } = registerHost();
+			for (const toolCase of cases) {
+				assert.equal(tools.has(toolCase.name), true, `${registerHost.name} registers ${toolCase.name}`);
+				const schema = tools.get(toolCase.name).parameters;
+				const properties = schema.properties ?? schema.shape;
+				assert.deepEqual(Object.keys(properties).sort(), toolCase.fields.sort());
+				const result = await tools.get(toolCase.name).execute("id", toolCase.args, undefined, undefined, { cwd: fixture.root });
+				assert.match(result.content[0].text, new RegExp(toolCase.name));
+				assert.equal(result.details.structured, true);
+			}
+			for (const omitted of ["codegraph_callers", "codegraph_callees", "codegraph_impact"]) {
+				assert.equal(tools.has(omitted), false, `${registerHost.name} does not expose ${omitted}`);
+			}
+			const searchSchema = tools.get("codegraph_search").parameters;
+			const searchProperties = searchSchema.properties ?? searchSchema.shape;
+			const kindValues = searchProperties.kind.enum ?? searchProperties.kind.options ?? searchProperties.kind.anyOf.map((item: any) => item.const);
+			assert.deepEqual(kindValues, ["function", "method", "class", "interface", "type", "variable", "route", "component"]);
+			const filesSchema = tools.get("codegraph_files").parameters;
+			const filesProperties = filesSchema.properties ?? filesSchema.shape;
+			const formatValues = filesProperties.format.enum ?? filesProperties.format.options ?? filesProperties.format.anyOf.map((item: any) => item.const);
+			assert.deepEqual(formatValues, ["tree", "flat", "grouped"]);
+		}
+		const calls = (await readFile(callsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+		assert.equal(calls.length, cases.length * 2);
+		for (let index = 0; index < calls.length; index++) {
+			const expected = cases[index % cases.length];
+			assert.equal(calls[index].name, expected.name);
+			assert.deepEqual(calls[index].arguments, { ...expected.args, projectPath: fixture.project });
+		}
+	} finally {
+		await rm(fixture.root, { recursive: true, force: true });
+	}
+});
+
+test("focused tools fail locally for invalid calls and missing indexes in both hosts", async () => {
+	for (const mode of ["invalid", "no-index"]) {
+		const fixture = await setupFakeCli(mode);
+		try {
+			for (const registerHost of [register, registerOmp]) {
+				const { tools } = registerHost();
+				for (const name of ["codegraph_node", "codegraph_search", "codegraph_files", "codegraph_status"]) {
+					const result = await tools.get(name).execute("id", {}, undefined, undefined, { cwd: fixture.project });
+					assert.equal(result.isError, true, `${mode} ${registerHost.name} ${name}`);
+					assert.match(result.content[0].text, /CodeGraph .* failed/);
+				}
+			}
+		} finally {
+			await rm(fixture.root, { recursive: true, force: true });
+		}
 	}
 });

@@ -27,6 +27,11 @@ MCP `codegraph_explore` operation. If the CLI or index is unavailable, only
 the current operation fails; the extension never initializes an index or
 writes project configuration.
 
+`codegraph_explore` remains the preferred general-purpose tool. For focused
+lookups, both hosts also expose `codegraph_node`, `codegraph_search`,
+`codegraph_files`, and `codegraph_status`; callers, callees, and impact are not
+registered as separate tools.
+
 Before each prompt, both hosts append concise CodeGraph guidance. The official
 `codegraph prompt-hook` may add relevant hidden context; empty output or any
 hook failure is ignored. Set `CODEGRAPH_NO_PROMPT_HOOK=1` to disable dynamic

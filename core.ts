@@ -32,7 +32,7 @@ async function resolveProjectPath(projectPath: string) {
 	return absolutePath;
 }
 
-export async function exploreCodeGraph(query: string, projectPath: string, signal?: AbortSignal, maxFiles?: number) {
+export async function callCodeGraphTool(toolName: string, args: Record<string, unknown>, projectPath: string, signal?: AbortSignal) {
 	if (signal?.aborted) throw new Error("CodeGraph exploration cancelled");
 	const cwd = await resolveProjectPath(projectPath);
 	const requestTimeoutMs = Number(process.env.CODEGRAPH_MCP_TIMEOUT_MS) || DEFAULT_REQUEST_TIMEOUT_MS;
@@ -43,18 +43,29 @@ export async function exploreCodeGraph(query: string, projectPath: string, signa
 			clientInfo: { name: "codegraph-ext", version: "0.1.0" },
 		});
 		await request("notifications/initialized");
-		const result = await request("tools/call", {
-			name: "codegraph_explore",
-			arguments: { query, ...(maxFiles === undefined ? {} : { maxFiles }) },
-		});
+		const result = await request("tools/call", { name: toolName, arguments: args });
 		if (result?.isError) {
 			const text = extractText(result);
-			throw new Error(text || "CodeGraph reported an exploration error");
+			throw new Error(text || `CodeGraph reported a ${toolName} error`);
 		}
 		const text = extractText(result);
-		if (typeof text !== "string" || !text.trim()) throw new Error("CodeGraph returned an empty explore result");
-		return text;
+		const structuredContent = result?.structuredContent;
+		const readableText = typeof text === "string" && text.trim()
+			? text
+			: structuredContent === undefined ? "" : JSON.stringify(structuredContent, null, 2);
+		if (!readableText.trim()) throw new Error(`CodeGraph returned an empty ${toolName} result`);
+		return { text: readableText, details: structuredContent ?? {} };
 	});
+}
+
+export async function exploreCodeGraph(query: string, projectPath: string, signal?: AbortSignal, maxFiles?: number) {
+	const result = await callCodeGraphTool(
+		"codegraph_explore",
+		{ query, ...(maxFiles === undefined ? {} : { maxFiles }) },
+		projectPath,
+		signal,
+	);
+	return result.text;
 }
 
 async function withMcpServer<T>(cwd: string, signal: AbortSignal | undefined, requestTimeoutMs: number, run: (request: (method: string, params?: unknown) => Promise<any>) => Promise<T>): Promise<T> {
