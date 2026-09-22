@@ -5,7 +5,7 @@
   "main": "index.ts",
   "scripts": {
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --types node core.ts register.ts"
+    "typecheck": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --types node core.ts prompt-hook.ts register.ts"
   },
   "type": "module",
   "pi": {

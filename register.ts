@@ -1,5 +1,8 @@
 import path from "node:path";
 import { exploreCodeGraph } from "./core";
+import { runCodeGraphPromptHook } from "./prompt-hook";
+
+export const CODEGRAPH_GUIDANCE = "Prefer CodeGraph for structural questions and use codegraph_explore; use grep/read when CodeGraph is insufficient or literal matching is needed.";
 
 export interface ExploreParams {
 	query: string;
@@ -17,6 +20,17 @@ function failureResult(error: unknown) {
 }
 
 export function registerCodeGraphHandlers(pi: any, parameters: any) {
+	pi.on("before_agent_start", async (event: { prompt: string; systemPrompt: string[] }, ctx: { cwd: string }) => {
+		const systemPrompt = event.systemPrompt.some((section) => section.includes(CODEGRAPH_GUIDANCE))
+			? event.systemPrompt
+			: [...event.systemPrompt, CODEGRAPH_GUIDANCE];
+		const context = await runCodeGraphPromptHook(event.prompt, ctx.cwd);
+		return {
+			systemPrompt,
+			...(context ? { message: { customType: "codegraph-context", content: context, display: false } } : {}),
+		};
+	});
+
 	pi.registerTool({
 		name: "codegraph_explore",
 		label: "CodeGraph Explore",

@@ -9,6 +9,8 @@ import ompExtension from "../omp.ts";
 
 const originalPath = process.env.PATH;
 const originalTimeout = process.env.CODEGRAPH_MCP_TIMEOUT_MS;
+const originalHookTimeout = process.env.CODEGRAPH_PROMPT_HOOK_TIMEOUT_MS;
+const originalHookDisabled = process.env.CODEGRAPH_NO_PROMPT_HOOK;
 
 async function setupFakeCli(mode = "success") {
 	const root = await mkdtemp(path.join(os.tmpdir(), "codegraph-ext-test-"));
@@ -21,6 +23,19 @@ async function setupFakeCli(mode = "success") {
 	await writeFile(cliPath, `#!/usr/bin/env node
 const mode = process.env.CODEGRAPH_TEST_MODE;
 if (process.env.CODEGRAPH_TEST_PID_FILE) require("node:fs").writeFileSync(process.env.CODEGRAPH_TEST_PID_FILE, String(process.pid));
+if (process.argv[2] === "prompt-hook") {
+	let hookInput = "";
+	process.stdin.setEncoding("utf8");
+	process.stdin.on("data", (chunk) => hookInput += chunk);
+	process.stdin.on("end", () => {
+		if (process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE) require("node:fs").writeFileSync(process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE, hookInput);
+		if (mode === "hook-error") process.exit(1);
+		if (mode === "hook-timeout") { setInterval(() => {}, 1000); return; }
+		if (mode !== "hook-empty" && mode !== "hook-no-index") process.stdout.write(process.env.CODEGRAPH_TEST_HOOK_OUTPUT || "<codegraph_context>Relevant graph context</codegraph_context>");
+	});
+	process.stdin.resume();
+	return;
+}
 let input = "";
 process.stdin.on("data", (chunk) => input += chunk);
 process.stdin.on("end", () => {});
@@ -61,20 +76,23 @@ process.stdin.on("data", () => {
 function register() {
 	const tools = new Map<string, any>();
 	const commands = new Map<string, any>();
+	const hooks = new Map<string, any[]>();
 	const messages: any[] = [];
 	const pi = {
 		typebox: Type,
+		on(event: string, handler: any) { hooks.set(event, [...hooks.get(event) ?? [], handler]); },
 		registerTool(tool: any) { tools.set(tool.name, tool); },
 		registerCommand(name: string, command: any) { commands.set(name, command); },
 		sendMessage(message: any) { messages.push(message); return message; },
 	};
 	extension(pi as any);
-	return { tools, commands, messages };
+	return { tools, commands, hooks, messages };
 }
 
 function registerOmp() {
 	const tools = new Map<string, any>();
 	const commands = new Map<string, any>();
+	const hooks = new Map<string, any[]>();
 	const messages: any[] = [];
 	const scalar = (type: string) => ({ type, optional() { return { type, optional: true }; } });
 	const zod = {
@@ -84,20 +102,27 @@ function registerOmp() {
 	};
 	const pi = {
 		zod,
+		on(event: string, handler: any) { hooks.set(event, [...hooks.get(event) ?? [], handler]); },
 		registerTool(tool: any) { tools.set(tool.name, tool); },
 		registerCommand(name: string, command: any) { commands.set(name, command); },
 		sendMessage(message: any) { messages.push(message); return message; },
 	};
 	ompExtension(pi as any);
-	return { tools, commands, messages };
+	return { tools, commands, hooks, messages };
 }
 
 test.afterEach(() => {
 	process.env.PATH = originalPath;
 	if (originalTimeout === undefined) delete process.env.CODEGRAPH_MCP_TIMEOUT_MS;
 	else process.env.CODEGRAPH_MCP_TIMEOUT_MS = originalTimeout;
+	if (originalHookTimeout === undefined) delete process.env.CODEGRAPH_PROMPT_HOOK_TIMEOUT_MS;
+	else process.env.CODEGRAPH_PROMPT_HOOK_TIMEOUT_MS = originalHookTimeout;
+	if (originalHookDisabled === undefined) delete process.env.CODEGRAPH_NO_PROMPT_HOOK;
+	else process.env.CODEGRAPH_NO_PROMPT_HOOK = originalHookDisabled;
 	delete process.env.CODEGRAPH_TEST_MODE;
 	delete process.env.CODEGRAPH_TEST_PID_FILE;
+	delete process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE;
+	delete process.env.CODEGRAPH_TEST_HOOK_OUTPUT;
 });
 
 test("registers codegraph_explore and keeps the slash command", () => {
@@ -211,5 +236,77 @@ test("OMP entry shares explore success, command, and fail-open behavior", async 
 		assert.match(notifications[0], /index unavailable/);
 	} finally {
 		await rm(failedFixture.root, { recursive: true, force: true });
+	}
+});
+
+test("pi and OMP append the same guidance and hidden prompt-hook context", async () => {
+	const fixture = await setupFakeCli();
+	const inputPath = path.join(fixture.root, "hook-input.json");
+	process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE = inputPath;
+	try {
+		const pi = register();
+		const omp = registerOmp();
+		const event = { prompt: "How does the request flow?", systemPrompt: ["base prompt"] };
+		const ctx = { cwd: fixture.project };
+		const piResult = await pi.hooks.get("before_agent_start")![0](event, ctx);
+		const ompResult = await omp.hooks.get("before_agent_start")![0](event, ctx);
+		const input = JSON.parse(await readFile(inputPath, "utf8"));
+		assert.deepEqual(input, { prompt: event.prompt, cwd: fixture.project });
+		assert.deepEqual(piResult.systemPrompt, ompResult.systemPrompt);
+		assert.equal(piResult.systemPrompt[0], "base prompt");
+		assert.equal(piResult.systemPrompt.filter((part: string) => part.includes("Prefer CodeGraph")).length, 1);
+		assert.equal(piResult.message.content, "<codegraph_context>Relevant graph context</codegraph_context>");
+		assert.equal(ompResult.message.content, piResult.message.content);
+		assert.equal(piResult.message.display, false);
+		assert.equal(ompResult.message.display, false);
+	} finally {
+		await rm(fixture.root, { recursive: true, force: true });
+	}
+});
+
+test("prompt hook fails open for empty output, missing index, failures, and timeouts", async () => {
+	for (const mode of ["hook-empty", "hook-no-index", "hook-error", "hook-timeout"]) {
+		const fixture = await setupFakeCli(mode);
+		try {
+			process.env.CODEGRAPH_PROMPT_HOOK_TIMEOUT_MS = "40";
+			for (const registerHost of [register, registerOmp]) {
+				const { hooks } = registerHost();
+				const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: ["base"] }, { cwd: fixture.project });
+				assert.equal(result.message, undefined, `${mode} ${registerHost.name}`);
+				assert.deepEqual(result.systemPrompt, ["base", result.systemPrompt[1]], `${mode} ${registerHost.name}`);
+				assert.match(result.systemPrompt[1], /Prefer CodeGraph/);
+			}
+		} finally {
+			await rm(fixture.root, { recursive: true, force: true });
+		}
+	}
+
+	const fixture = await setupFakeCli();
+	try {
+		process.env.CODEGRAPH_NO_PROMPT_HOOK = "1";
+		process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE = path.join(fixture.root, "should-not-run.json");
+		const { hooks } = registerOmp();
+		const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: ["base"] }, { cwd: fixture.project });
+		assert.equal(result.message, undefined);
+		assert.match(result.systemPrompt[1], /Prefer CodeGraph/);
+		await assert.rejects(readFile(process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE));
+	} finally {
+		await rm(fixture.root, { recursive: true, force: true });
+	}
+});
+
+test("missing prompt-hook CLI does not block either host", async () => {
+	const fixture = await setupFakeCli();
+	try {
+		process.env.PATH = path.join(fixture.root, "missing-bin");
+		for (const registerHost of [register, registerOmp]) {
+			const { hooks } = registerHost();
+			const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: ["base"] }, { cwd: fixture.project });
+			assert.equal(result.message, undefined);
+			assert.equal(result.systemPrompt[0], "base");
+			assert.match(result.systemPrompt[1], /Prefer CodeGraph/);
+		}
+	} finally {
+		await rm(fixture.root, { recursive: true, force: true });
 	}
 });

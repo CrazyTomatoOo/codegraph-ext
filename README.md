@@ -27,6 +27,11 @@ MCP `codegraph_explore` operation. If the CLI or index is unavailable, only
 the current operation fails; the extension never initializes an index or
 writes project configuration.
 
+Before each prompt, both hosts append concise CodeGraph guidance. The official
+`codegraph prompt-hook` may add relevant hidden context; empty output or any
+hook failure is ignored. Set `CODEGRAPH_NO_PROMPT_HOOK=1` to disable dynamic
+context, or `CODEGRAPH_PROMPT_HOOK_TIMEOUT_MS` to change its 2.5-second timeout.
+
 Requires Node.js `>=22.19.0`; oh-my-pi loads the TypeScript entry with its Bun
 runtime. Requests time out after 20 seconds by default. Set
 `CODEGRAPH_MCP_TIMEOUT_MS` to override the per-request timeout.
