@@ -7,7 +7,38 @@ entries use the same handlers and short-lived stdio MCP core with the installed
 
 ## Usage
 
-Install CodeGraph and index the repository, then load the host-specific entry:
+### Requirements
+
+- Node.js `>=22.19.0` and the CodeGraph CLI (`codegraph`) on `PATH`.
+- pi `0.83.x`, or a newer compatible version.
+- The current stable oh-my-pi (OMP) release.
+- A CodeGraph index for indexed lookups. No-index and missing-CLI cases fail open.
+
+CodeGraph compatibility is based on the CLI's MCP interface (`codegraph serve
+--mcp`), not a pinned CLI version. Check `codegraph --version` and run the
+acceptance checks below when changing the CLI version.
+
+### Install
+
+Install a tagged GitHub release first:
+
+```bash
+pi install git:github.com/CrazyTomatoOo/codegraph-ext@<tag>
+omp plugin install git:github.com/CrazyTomatoOo/codegraph-ext@<tag>
+```
+
+After the same release passes the GitHub install checks, install the stable npm
+package:
+
+```bash
+pi install npm:codegraph-ext
+omp plugin install npm:codegraph-ext
+```
+
+Both routes use `pi.extensions` to select `index.ts` or `omp.extensions` to
+select `omp.ts`; both entries share the same handlers and MCP implementation.
+
+For local development, load a host-specific entry directly:
 
 ```bash
 pi -e ./index.ts
@@ -37,13 +68,38 @@ Before each prompt, both hosts append concise CodeGraph guidance. The official
 hook failure is ignored. Set `CODEGRAPH_NO_PROMPT_HOOK=1` to disable dynamic
 context, or `CODEGRAPH_PROMPT_HOOK_TIMEOUT_MS` to change its 2.5-second timeout.
 
-Requires Node.js `>=22.19.0`; oh-my-pi loads the TypeScript entry with its Bun
-runtime. Requests time out after 20 seconds by default. Set
+Oh-my-pi loads the TypeScript entry with its Bun runtime. Requests time out after 20 seconds by default. Set
 `CODEGRAPH_MCP_TIMEOUT_MS` to override the per-request timeout.
 
 ## Development
 
 ```bash
-npm install
+npm ci
+npm run typecheck
 npm test
+npm pack --dry-run --json
+node scripts/host-acceptance.mjs <package-directory> <indexed-project-directory>
 ```
+
+`npm pack` runs typechecking and tests before building the tarball. Verify the
+artifact contains both entries, shared source, README, and license.
+The host matrix command needs `pi`, `omp`, and `codegraph` on `PATH`; set
+`PI_BIN`, `OMP_BIN`, and `CODEGRAPH_BIN` to test explicit runtime versions.
+
+## Release verification
+
+1. Update the package version; run the development checks and build the npm
+   tarball with `npm pack`.
+2. Push the candidate to GitHub, create and push the matching `vX.Y.Z` tag,
+   then install that tag in pi and OMP.
+3. Run the host matrix against the unpacked tarball in each real host. It
+   verifies extension startup, all five tools, `/codegraph`, indexed queries,
+   readable no-index guidance, and missing-CLI fail-open behavior.
+4. Record `codegraph --version`. Verify prompt-hook disabled behavior with
+   `CODEGRAPH_NO_PROMPT_HOOK=1`; the automated suite covers empty hook output.
+5. After the GitHub-tag matrix passes, publish that exact version with
+   `npm publish` and verify installation from npm in both hosts.
+
+The package's `prepack` hook runs `npm run typecheck` and `npm test` for both
+`npm pack` and `npm publish`. The fake-CLI suite also verifies prompt-hook
+kill-switch and empty-output behavior.

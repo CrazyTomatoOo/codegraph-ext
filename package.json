@@ -2,10 +2,19 @@
   "name": "codegraph-ext",
   "version": "0.1.0",
   "description": "CodeGraph explore extension for pi and oh-my-pi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CrazyTomatoOo/codegraph-ext.git"
+  },
+  "homepage": "https://github.com/CrazyTomatoOo/codegraph-ext#readme",
+  "bugs": {
+    "url": "https://github.com/CrazyTomatoOo/codegraph-ext/issues"
+  },
   "main": "index.ts",
   "scripts": {
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --types node core.ts prompt-hook.ts register.ts"
+    "typecheck": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --types node core.ts prompt-hook.ts register.ts",
+    "prepack": "npm run typecheck && npm test"
   },
   "type": "module",
   "pi": {
@@ -22,6 +31,7 @@
     "node": ">=22.19.0"
   },
   "keywords": [
+    "pi-package",
     "pi",
     "oh-my-pi",
     "pi-extension",
@@ -30,6 +40,15 @@
   "peerDependencies": {
     "typebox": "*"
   },
+  "files": [
+    "README.md",
+    "LICENSE",
+    "core.ts",
+    "index.ts",
+    "omp.ts",
+    "prompt-hook.ts",
+    "register.ts"
+  ],
   "devDependencies": {
     "@types/node": "^26.6.2",
     "tsx": "^4.20.6",
