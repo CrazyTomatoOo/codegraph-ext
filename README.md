@@ -24,7 +24,7 @@ Install a tagged GitHub release first:
 
 ```bash
 pi install git:github.com/CrazyTomatoOo/codegraph-ext@<tag>
-omp plugin install git:github.com/CrazyTomatoOo/codegraph-ext@<tag>
+omp plugin install github:CrazyTomatoOo/codegraph-ext#<tag>
 ```
 
 After the same release passes the GitHub install checks, install the stable npm
@@ -32,7 +32,7 @@ package:
 
 ```bash
 pi install npm:codegraph-ext
-omp plugin install npm:codegraph-ext
+omp plugin install codegraph-ext
 ```
 
 Both routes use `pi.extensions` to select `index.ts` or `omp.extensions` to
@@ -83,6 +83,7 @@ node scripts/host-acceptance.mjs <package-directory> <indexed-project-directory>
 
 `npm pack` runs typechecking and tests before building the tarball. Verify the
 artifact contains both entries, shared source, README, and license.
+The package's `prepack` hook also runs for `npm publish`.
 The host matrix command needs `pi`, `omp`, and `codegraph` on `PATH`; set
 `PI_BIN`, `OMP_BIN`, and `CODEGRAPH_BIN` to test explicit runtime versions.
 
@@ -100,6 +101,5 @@ The host matrix command needs `pi`, `omp`, and `codegraph` on `PATH`; set
 5. After the GitHub-tag matrix passes, publish that exact version with
    `npm publish` and verify installation from npm in both hosts.
 
-The package's `prepack` hook runs `npm run typecheck` and `npm test` for both
-`npm pack` and `npm publish`. The fake-CLI suite also verifies prompt-hook
-kill-switch and empty-output behavior.
+The fake-CLI suite also verifies prompt-hook kill-switch and empty-output
+behavior.
