@@ -260,19 +260,34 @@ test("pi and OMP append the same guidance and hidden prompt-hook context", async
 	try {
 		const pi = register();
 		const omp = registerOmp();
-		const event = { prompt: "How does the request flow?", systemPrompt: ["base prompt"] };
+		const event = { prompt: "How does the request flow?", systemPrompt: "base prompt" };
 		const ctx = { cwd: fixture.project };
 		const piResult = await pi.hooks.get("before_agent_start")![0](event, ctx);
 		const ompResult = await omp.hooks.get("before_agent_start")![0](event, ctx);
 		const input = JSON.parse(await readFile(inputPath, "utf8"));
 		assert.deepEqual(input, { prompt: event.prompt, cwd: fixture.project });
 		assert.deepEqual(piResult.systemPrompt, ompResult.systemPrompt);
-		assert.equal(piResult.systemPrompt[0], "base prompt");
-		assert.equal(piResult.systemPrompt.filter((part: string) => part.includes("Prefer CodeGraph")).length, 1);
+		assert.match(piResult.systemPrompt, /^base prompt/);
+		assert.equal(piResult.systemPrompt.split("Prefer CodeGraph").length - 1, 1);
 		assert.equal(piResult.message.content, "<codegraph_context>Relevant graph context</codegraph_context>");
 		assert.equal(ompResult.message.content, piResult.message.content);
 		assert.equal(piResult.message.display, false);
 		assert.equal(ompResult.message.display, false);
+	} finally {
+		await rm(fixture.root, { recursive: true, force: true });
+	}
+});
+
+test("before_agent_start accepts the Pi string systemPrompt contract", async () => {
+	const fixture = await setupFakeCli();
+	try {
+		const { hooks } = register();
+		const result = await hooks.get("before_agent_start")![0](
+			{ prompt: "How does the request flow?", systemPrompt: "base prompt" },
+			{ cwd: fixture.project },
+		);
+		assert.match(result.systemPrompt, /^base prompt/);
+		assert.match(result.systemPrompt, /Prefer CodeGraph/);
 	} finally {
 		await rm(fixture.root, { recursive: true, force: true });
 	}
@@ -285,10 +300,10 @@ test("prompt hook fails open for empty output, missing index, failures, and time
 			process.env.CODEGRAPH_PROMPT_HOOK_TIMEOUT_MS = "40";
 			for (const registerHost of [register, registerOmp]) {
 				const { hooks } = registerHost();
-				const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: ["base"] }, { cwd: fixture.project });
+				const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: "base" }, { cwd: fixture.project });
 				assert.equal(result.message, undefined, `${mode} ${registerHost.name}`);
-				assert.deepEqual(result.systemPrompt, ["base", result.systemPrompt[1]], `${mode} ${registerHost.name}`);
-				assert.match(result.systemPrompt[1], /Prefer CodeGraph/);
+				assert.match(result.systemPrompt, /^base/);
+				assert.match(result.systemPrompt, /Prefer CodeGraph/);
 			}
 		} finally {
 			await rm(fixture.root, { recursive: true, force: true });
@@ -300,9 +315,9 @@ test("prompt hook fails open for empty output, missing index, failures, and time
 		process.env.CODEGRAPH_NO_PROMPT_HOOK = "1";
 		process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE = path.join(fixture.root, "should-not-run.json");
 		const { hooks } = registerOmp();
-		const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: ["base"] }, { cwd: fixture.project });
+		const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: "base" }, { cwd: fixture.project });
 		assert.equal(result.message, undefined);
-		assert.match(result.systemPrompt[1], /Prefer CodeGraph/);
+		assert.match(result.systemPrompt, /Prefer CodeGraph/);
 		await assert.rejects(readFile(process.env.CODEGRAPH_TEST_HOOK_INPUT_FILE));
 	} finally {
 		await rm(fixture.root, { recursive: true, force: true });
@@ -315,10 +330,10 @@ test("missing prompt-hook CLI does not block either host", async () => {
 		process.env.PATH = path.join(fixture.root, "missing-bin");
 		for (const registerHost of [register, registerOmp]) {
 			const { hooks } = registerHost();
-			const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: ["base"] }, { cwd: fixture.project });
+			const result = await hooks.get("before_agent_start")![0]({ prompt: "structural?", systemPrompt: "base" }, { cwd: fixture.project });
 			assert.equal(result.message, undefined);
-			assert.equal(result.systemPrompt[0], "base");
-			assert.match(result.systemPrompt[1], /Prefer CodeGraph/);
+			assert.match(result.systemPrompt, /^base/);
+			assert.match(result.systemPrompt, /Prefer CodeGraph/);
 		}
 	} finally {
 		await rm(fixture.root, { recursive: true, force: true });

@@ -50,10 +50,10 @@ function failureResult(error: unknown, operation = "exploration") {
 }
 
 export function registerCodeGraphHandlers(pi: any, parameters: any, focusedParameters: FocusedToolSchemas) {
-	pi.on("before_agent_start", async (event: { prompt: string; systemPrompt: string[] }, ctx: { cwd: string }) => {
-		const systemPrompt = event.systemPrompt.some((section) => section.includes(CODEGRAPH_GUIDANCE))
+	pi.on("before_agent_start", async (event: { prompt: string; systemPrompt: string }, ctx: { cwd: string }) => {
+		const systemPrompt = event.systemPrompt.includes(CODEGRAPH_GUIDANCE)
 			? event.systemPrompt
-			: [...event.systemPrompt, CODEGRAPH_GUIDANCE];
+			: `${event.systemPrompt}\n\n${CODEGRAPH_GUIDANCE}`;
 		const context = await runCodeGraphPromptHook(event.prompt, ctx.cwd);
 		return {
 			systemPrompt,
